@@ -13,7 +13,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 /*
-  suppport for serial connected AHRS systems
+  support for serial connected AHRS systems
  */
 
 #pragma once
@@ -43,8 +43,12 @@ public:
 
     enum class DevType : uint8_t {
         None   = 0,
+#if AP_EXTERNAL_AHRS_VECTORNAV_ENABLED
         VecNav = 1,
-        LORD = 2,
+#endif
+#if AP_EXTERNAL_AHRS_MICROSTRAIN5_ENABLED
+        MicroStrain5 = 2,
+#endif
     };
 
     static AP_ExternalAHRS *get_singleton(void) {

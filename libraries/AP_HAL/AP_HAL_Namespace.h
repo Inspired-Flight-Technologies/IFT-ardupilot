@@ -33,9 +33,9 @@ namespace AP_HAL {
     class OpticalFlow;
     class DSP;
 
-    class QSPIDevice;
-    class QSPIDeviceDriver;
-    class QSPIDeviceManager;
+    class WSPIDevice;
+    class WSPIDeviceDriver;
+    class WSPIDeviceManager;
 
     class CANIface;
     class CANFrame;
@@ -51,7 +51,7 @@ namespace AP_HAL {
     /* Typdefs for function pointers (Procedure, Member Procedure)
 
        For member functions we use the FastDelegate delegates class
-       which allows us to encapculate a member function as a type
+       which allows us to encapsulate a member function as a type
      */
     typedef void(*Proc)(void);
     FUNCTOR_TYPEDEF(MemberProc, void);

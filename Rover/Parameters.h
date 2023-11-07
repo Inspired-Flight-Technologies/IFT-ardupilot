@@ -312,14 +312,16 @@ public:
     AP_AdvancedFailsafe_Rover afs;
 #endif
 
+#if AP_BEACON_ENABLED
     AP_Beacon beacon;
-
-    // Motor library
-    AP_MotorsUGV motors;
+#endif
 
     // wheel encoders
     AP_WheelEncoder wheel_encoder;
     AP_WheelRateControl wheel_rate_control;
+
+    // Motor library
+    AP_MotorsUGV motors;
 
     // steering and throttle controller
     AR_AttitudeControl attitude_control;
@@ -358,8 +360,10 @@ public:
     // pitch/roll angle for crash check
     AP_Int8 crash_angle;
 
+#if AP_FOLLOW_ENABLED
     // follow mode library
     AP_Follow follow;
+#endif
 
     // frame type for vehicle (used for vectored motor vehicles and custom motor configs)
     AP_Int8 frame_type;
@@ -377,8 +381,10 @@ public:
     AP_Gripper gripper;
 #endif
 
+#if HAL_RALLY_ENABLED
     // Rally point library
     AP_Rally_Rover rally;
+#endif
 
     // Simple mode types
     AP_Int8 simple_type;
@@ -436,6 +442,8 @@ public:
 
     // FS GCS timeout trigger time
     AP_Float fs_gcs_timeout;
+
+    class ModeCircle mode_circle;
 };
 
 extern const AP_Param::Info var_info[];

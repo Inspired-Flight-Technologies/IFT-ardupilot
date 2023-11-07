@@ -22,7 +22,6 @@
 #include <GCS_MAVLink/GCS.h>
 
 #define HNF_MAX_FILTERS HAL_HNF_MAX_FILTERS // must be even for double-notch filters
-#define HNF_MAX_HARMONICS 8
 
 // table of user settable parameters
 const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
@@ -36,7 +35,7 @@ const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
 
     // @Param: FREQ
     // @DisplayName: Harmonic Notch Filter base frequency
-    // @Description: Harmonic Notch Filter base center frequency in Hz. This should be set at most half the backend gyro rate (which is typically 1Khz). For helicopters using RPM sensor to dynamically set the notch frequency, use this parameter to provide a lower limit to the dynamic notch filter.  Recommend setting it to half the operating rotor speed in Hz.
+    // @Description: Harmonic Notch Filter base center frequency in Hz. This is the center frequency for static notches, the center frequency for Throttle based notches at the reference thrust value, and the minimum limit of center frequency variation for all other notch types. This should always be set lower than half the backend gyro rate (which is typically 1Khz). 
     // @Range: 10 495
     // @Units: Hz
     // @User: Advanced
@@ -61,7 +60,22 @@ const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
     // @Param: HMNCS
     // @DisplayName: Harmonic Notch Filter harmonics
     // @Description: Bitmask of harmonic frequencies to apply Harmonic Notch Filter to. This option takes effect on the next reboot. A value of 0 disables this filter. The first harmonic refers to the base frequency.
-    // @Bitmask: 0:1st harmonic,1:2nd harmonic,2:3rd harmonic,3:4th hamronic,4:5th harmonic,5:6th harmonic,6:7th harmonic,7:8th harmonic
+    // @Bitmask: 0:  1st harmonic
+    // @Bitmask: 1:  2nd harmonic
+    // @Bitmask: 2:  3rd harmonic
+    // @Bitmask: 3:  4th harmonic
+    // @Bitmask: 4:  5th harmonic
+    // @Bitmask: 5:  6th harmonic
+    // @Bitmask: 6:  7th harmonic
+    // @Bitmask: 7:  8th harmonic
+    // @Bitmask: 8:  9th harmonic
+    // @Bitmask: 9:  10th harmonic
+    // @Bitmask: 10: 11th harmonic
+    // @Bitmask: 11: 12th harmonic
+    // @Bitmask: 12: 13th harmonic
+    // @Bitmask: 13: 14th harmonic
+    // @Bitmask: 14: 15th harmonic
+    // @Bitmask: 15: 16th harmonic
     // @User: Advanced
     // @RebootRequired: True
     AP_GROUPINFO("HMNCS", 5, HarmonicNotchFilterParams, _harmonics, 3),
@@ -77,15 +91,15 @@ const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
     // @Param: MODE
     // @DisplayName: Harmonic Notch Filter dynamic frequency tracking mode
     // @Description: Harmonic Notch Filter dynamic frequency tracking mode. Dynamic updates can be throttle, RPM sensor, ESC telemetry or dynamic FFT based. Throttle-based updates should only be used with multicopters.
-    // @Range: 0 4
-    // @Values: 0:Disabled,1:Throttle,2:RPM Sensor,3:ESC Telemetry,4:Dynamic FFT,5:Second RPM Sensor
+    // @Range: 0 5
+    // @Values: 0:Fixed,1:Throttle,2:RPM Sensor,3:ESC Telemetry,4:Dynamic FFT,5:Second RPM Sensor
     // @User: Advanced
     AP_GROUPINFO("MODE", 7, HarmonicNotchFilterParams, _tracking_mode, int8_t(HarmonicNotchDynamicMode::UpdateThrottle)),
 
     // @Param: OPTS
     // @DisplayName: Harmonic Notch Filter options
-    // @Description: Harmonic Notch Filter options. Triple and double-notches can provide deeper attenuation across a wider bandwidth with reduced latency than single notches and are suitable for larger aircraft. Dynamic harmonics attaches a harmonic notch to each detected noise frequency instead of simply being multiples of the base frequency, in the case of FFT it will attach notches to each of three detected noise peaks, in the case of ESC it will attach notches to each of four motor RPM values. Loop rate update changes the notch center frequency at the scheduler loop rate rather than at the default of 200Hz. If both double and triple notches are specified only double notches will take effect.
-    // @Bitmask: 0:Double notch,1:Dynamic harmonic,2:Update at loop rate,3:EnableOnAllIMUs,4:Triple notch
+    // @Description: Harmonic Notch Filter options. Triple and double-notches can provide deeper attenuation across a wider bandwidth with reduced latency than single notches and are suitable for larger aircraft. Multi-Source attaches a harmonic notch to each detected noise frequency instead of simply being multiples of the base frequency, in the case of FFT it will attach notches to each of three detected noise peaks, in the case of ESC it will attach notches to each of four motor RPM values. Loop rate update changes the notch center frequency at the scheduler loop rate rather than at the default of 200Hz. If both double and triple notches are specified only double notches will take effect.
+    // @Bitmask: 0:Double notch,1:Multi-Source,2:Update at loop rate,3:EnableOnAllIMUs,4:Triple notch
     // @User: Advanced
     // @RebootRequired: True
     AP_GROUPINFO("OPTS", 8, HarmonicNotchFilterParams, _options, 0),
@@ -143,7 +157,7 @@ void HarmonicNotchFilter<T>::init(float sample_freq_hz, float center_freq_hz, fl
   allocate a collection of, at most HNF_MAX_FILTERS, notch filters to be managed by this harmonic notch filter
  */
 template <class T>
-void HarmonicNotchFilter<T>::allocate_filters(uint8_t num_notches, uint8_t harmonics, uint8_t composite_notches)
+void HarmonicNotchFilter<T>::allocate_filters(uint8_t num_notches, uint32_t harmonics, uint8_t composite_notches)
 {
     _composite_notches = MIN(composite_notches, 3);
     _num_harmonics = __builtin_popcount(harmonics);
@@ -325,6 +339,11 @@ void HarmonicNotchFilter<T>::reset()
 HarmonicNotchFilterParams::HarmonicNotchFilterParams(void)
 {
     AP_Param::setup_object_defaults(this, var_info);
+}
+
+void HarmonicNotchFilterParams::init()
+{
+    _harmonics.convert_parameter_width(AP_PARAM_INT8);
 }
 
 /*

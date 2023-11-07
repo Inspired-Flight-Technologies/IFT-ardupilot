@@ -10,17 +10,21 @@
     - readdir loop of 511 entry directory ~62,000 microseconds
  */
 
+#include "AP_Logger_config.h"
+
+#if HAL_LOGGING_FILESYSTEM_ENABLED
+
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Filesystem/AP_Filesystem.h>
 
+#include "AP_Logger.h"
 #include "AP_Logger_File.h"
-
-#if HAL_LOGGING_FILESYSTEM_ENABLED
 
 #include <AP_Common/AP_Common.h>
 #include <AP_InternalError/AP_InternalError.h>
 #include <AP_RTC/AP_RTC.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
+#include <AP_AHRS/AP_AHRS.h>
 
 #include <AP_Math/AP_Math.h>
 #include <GCS_MAVLink/GCS.h>
@@ -94,6 +98,16 @@ void AP_Logger_File::Init()
         _log_directory = custom_dir;
     }
 
+    uint16_t last_log_num = find_last_log();
+    if (last_log_is_marked_discard) {
+        // delete the last log leftover from LOG_DISARMED=3
+        char *filename = _log_file_name(last_log_num);
+        if (filename != nullptr) {
+            AP::FS().unlink(filename);
+            free(filename);
+        }
+    }
+
     Prep_MinSpace();
 }
 
@@ -154,9 +168,12 @@ void AP_Logger_File::periodic_1Hz()
         }
     }
 
-    if (rate_limiter == nullptr && (_front._params.file_ratemax > 0 || _front._log_pause)) {
+    if (rate_limiter == nullptr &&
+        (_front._params.file_ratemax > 0 ||
+         _front._params.disarm_ratemax > 0 ||
+         _front._log_pause)) {
         // setup rate limiting if log rate max > 0Hz or log pause of streaming entries is requested
-        rate_limiter = new AP_Logger_RateLimiter(_front, _front._params.file_ratemax);
+        rate_limiter = new AP_Logger_RateLimiter(_front, _front._params.file_ratemax, _front._params.disarm_ratemax);
     }
 }
 
@@ -518,8 +535,13 @@ uint16_t AP_Logger_File::find_last_log()
     EXPECT_DELAY_MS(3000);
     FileData *fd = AP::FS().load_file(fname);
     free(fname);
+    last_log_is_marked_discard = false;
     if (fd != nullptr) {
-        ret = strtol((const char *)fd->data, nullptr, 10);
+        char *endptr = nullptr;
+        ret = strtol((const char *)fd->data, &endptr, 10);
+        if (endptr != nullptr) {
+            last_log_is_marked_discard = *endptr == 'D';
+        }
         delete fd;
     }
     return ret;
@@ -561,11 +583,15 @@ uint32_t AP_Logger_File::_get_log_time(const uint16_t log_num)
             // it is the file we are currently writing
             free(fname);
             write_fd_semaphore.give();
+#if AP_RTC_ENABLED
             uint64_t utc_usec;
             if (!AP::rtc().get_utc_usec(utc_usec)) {
                 return 0;
             }
             return utc_usec / 1000000U;
+#else
+            return 0;
+#endif
         }
         write_fd_semaphore.give();
     }
@@ -745,7 +771,7 @@ void AP_Logger_File::PrepForArming_start_logging()
         if (logging_started()) {
             break;
         }
-#if !APM_BUILD_TYPE(APM_BUILD_Replay) && !defined(HAL_BUILD_AP_PERIPH) && !APM_BUILD_TYPE(APM_BUILD_UNKNOWN)
+#if !APM_BUILD_TYPE(APM_BUILD_Replay) && AP_AHRS_ENABLED
         // keep the EKF ticking over
         AP::ahrs().update();
 #endif
@@ -818,8 +844,10 @@ void AP_Logger_File::start_new_log(void)
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
     // remember if we had utc time when we opened the file
+#if AP_RTC_ENABLED
     uint64_t utc_usec;
     _need_rtc_update = !AP::rtc().get_utc_usec(utc_usec);
+#endif
 #endif
 
     // create the log directory if need be
@@ -847,30 +875,34 @@ void AP_Logger_File::start_new_log(void)
     write_fd_semaphore.give();
 
     // now update lastlog.txt with the new log number
+    last_log_is_marked_discard = _front._params.log_disarmed == AP_Logger::LogDisarmed::LOG_WHILE_DISARMED_DISCARD;
+    if (!write_lastlog_file(log_num)) {
+        _open_error_ms = AP_HAL::millis();
+    }
+}
+
+/*
+  write LASTLOG.TXT, possibly with a discard marker
+ */
+bool AP_Logger_File::write_lastlog_file(uint16_t log_num)
+{
+    // now update lastlog.txt with the new log number
     char *fname = _lastlog_file_name();
 
     EXPECT_DELAY_MS(3000);
     int fd = AP::FS().open(fname, O_WRONLY|O_CREAT);
     free(fname);
     if (fd == -1) {
-        _open_error_ms = AP_HAL::millis();
-        return;
+        return false;
     }
 
     char buf[30];
-    snprintf(buf, sizeof(buf), "%u\r\n", (unsigned)log_num);
+    snprintf(buf, sizeof(buf), "%u%s\r\n", (unsigned)log_num, last_log_is_marked_discard?"D":"");
     const ssize_t to_write = strlen(buf);
     const ssize_t written = AP::FS().write(fd, buf, to_write);
     AP::FS().close(fd);
-
-    if (written < to_write) {
-        _open_error_ms = AP_HAL::millis();
-        return;
-    }
-
-    return;
+    return written == to_write;
 }
-
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL || CONFIG_HAL_BOARD == HAL_BOARD_LINUX
 void AP_Logger_File::flush(void)
@@ -919,6 +951,13 @@ void AP_Logger_File::io_timer(void)
 
     if (_write_fd == -1 || !_initialised || recent_open_error()) {
         return;
+    }
+
+    if (last_log_is_marked_discard && hal.util->get_soft_armed()) {
+        // time to make the log permanent
+        const auto log_num = find_last_log();
+        last_log_is_marked_discard = false;
+        write_lastlog_file(log_num);
     }
 
     uint32_t nbytes = _writebuf.available();
@@ -1001,7 +1040,7 @@ void AP_Logger_File::io_timer(void)
         last_io_operation = "";
 #endif
 
-#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
+#if AP_RTC_ENABLED && CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
         // ChibiOS does not update mtime on writes, so if we opened
         // without knowing the time we should update it later
         if (_need_rtc_update) {

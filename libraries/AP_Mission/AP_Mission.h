@@ -203,6 +203,7 @@ public:
         bool start_control; // start or stop engine
         bool cold_start; // use cold start procedure
         uint16_t height_delay_cm; // height delay for start
+        bool allow_disarmed_start; // allow starting the engine while disarmed
     };
 
     // NAV_SET_YAW_SPEED support
@@ -265,6 +266,36 @@ public:
         int8_t yaw_rate_degs;
         uint8_t flags;
         uint8_t gimbal_id;
+    };
+
+    // MAV_CMD_IMAGE_START_CAPTURE support
+    struct PACKED image_start_capture_Command {
+        uint8_t instance;
+        float interval_s;
+        uint16_t total_num_images;
+        uint16_t start_seq_number;
+    };
+
+    // MAV_CMD_SET_CAMERA_ZOOM support
+    struct PACKED set_camera_zoom_Command {
+        uint8_t zoom_type;
+        float zoom_value;
+    };
+
+    // MAV_CMD_SET_CAMERA_FOCUS support
+    struct PACKED set_camera_focus_Command {
+        uint8_t focus_type;
+        float focus_value;
+    };
+
+    // MAV_CMD_VIDEO_START_CAPTURE support
+    struct PACKED video_start_capture_Command {
+        uint8_t video_stream_id;
+    };
+
+    // MAV_CMD_VIDEO_STOP_CAPTURE support
+    struct PACKED video_stop_capture_Command {
+        uint8_t video_stream_id;
     };
 
     union Content {
@@ -347,6 +378,21 @@ public:
 
         // MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW
         gimbal_manager_pitchyaw_Command gimbal_manager_pitchyaw;
+
+        // MAV_CMD_IMAGE_START_CAPTURE support
+        image_start_capture_Command image_start_capture;
+
+        // MAV_CMD_SET_CAMERA_ZOOM support
+        set_camera_zoom_Command set_camera_zoom;
+
+        // MAV_CMD_SET_CAMERA_FOCUS support
+        set_camera_focus_Command set_camera_focus;
+
+        // MAV_CMD_VIDEO_START_CAPTURE support
+        video_start_capture_Command video_start_capture;
+
+        // MAV_CMD_VIDEO_STOP_CAPTURE support
+        video_stop_capture_Command video_stop_capture;
 
         // location
         Location location{};      // Waypoint location
@@ -582,10 +628,6 @@ public:
     // mavlink_int_to_mission_cmd - converts mavlink message to an AP_Mission::Mission_Command object which can be stored to eeprom
     //  return MAV_MISSION_ACCEPTED on success, MAV_MISSION_RESULT error on failure
     static MAV_MISSION_RESULT mavlink_int_to_mission_cmd(const mavlink_mission_item_int_t& packet, AP_Mission::Mission_Command& cmd);
-
-    // mavlink_cmd_long_to_mission_cmd - converts a mavlink cmd long to an AP_Mission::Mission_Command object which can be stored to eeprom
-    // return MAV_MISSION_ACCEPTED on success, MAV_MISSION_RESULT error on failure
-    static MAV_MISSION_RESULT mavlink_cmd_long_to_mission_cmd(const mavlink_command_long_t& packet, AP_Mission::Mission_Command& cmd);
 
     // mission_cmd_to_mavlink_int - converts an AP_Mission::Mission_Command object to a mavlink message which can be sent to the GCS
     //  return true on success, false on failure

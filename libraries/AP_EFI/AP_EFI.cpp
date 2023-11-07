@@ -23,6 +23,7 @@
 #include "AP_EFI_DroneCAN.h"
 #include "AP_EFI_Currawong_ECU.h"
 #include "AP_EFI_Scripting.h"
+#include "AP_EFI_MAV.h"
 
 #include <AP_Logger/AP_Logger.h>
 #include <GCS_MAVLink/GCS.h>
@@ -38,7 +39,7 @@ const AP_Param::GroupInfo AP_EFI::var_info[] = {
     // @Param: _TYPE
     // @DisplayName: EFI communication type
     // @Description: What method of communication is used for EFI #1
-    // @Values: 0:None,1:Serial-MS,2:NWPMU,3:Serial-Lutan,5:DroneCAN,6:Currawong-ECU,7:Scripting
+    // @Values: 0:None,1:Serial-MS,2:NWPMU,3:Serial-Lutan,5:DroneCAN,6:Currawong-ECU,7:Scripting,9:MAV
     // @User: Advanced
     // @RebootRequired: True
     AP_GROUPINFO_FLAGS("_TYPE", 1, AP_EFI, type, 0, AP_PARAM_FLAG_ENABLE),
@@ -87,32 +88,41 @@ void AP_EFI::init(void)
     switch ((Type)type.get()) {
     case Type::NONE:
         break;
+#if AP_EFI_SERIAL_MS_ENABLED
     case Type::MegaSquirt:
         backend = new AP_EFI_Serial_MS(*this);
         break;
+#endif
+#if AP_EFI_SERIAL_LUTAN_ENABLED
     case Type::Lutan:
         backend = new AP_EFI_Serial_Lutan(*this);
         break;
+#endif
+#if AP_EFI_NWPWU_ENABLED
     case Type::NWPMU:
-#if HAL_EFI_NWPWU_ENABLED
         backend = new AP_EFI_NWPMU(*this);
-#endif
         break;
+#endif
+#if AP_EFI_DRONECAN_ENABLED
     case Type::DroneCAN:
-#if HAL_EFI_DRONECAN_ENABLED
         backend = new AP_EFI_DroneCAN(*this);
-#endif
         break;
+#endif
+#if AP_EFI_CURRAWONG_ECU_ENABLED
     case Type::CurrawongECU:
-#if HAL_EFI_CURRAWONG_ECU_ENABLED
         backend = new AP_EFI_Currawong_ECU(*this);
-#endif
         break;
-    case Type::SCRIPTING:
+#endif
 #if AP_EFI_SCRIPTING_ENABLED
+    case Type::SCRIPTING:
         backend = new AP_EFI_Scripting(*this);
-#endif
         break;
+#endif
+#if AP_EFI_MAV_ENABLED
+    case Type::MAV:
+            backend = new AP_EFI_MAV(*this);
+            break;
+#endif
     default:
         GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Unknown EFI type");
         break;
@@ -296,6 +306,12 @@ void AP_EFI::get_state(EFI_State &_state)
 {
     WITH_SEMAPHORE(sem);
     _state = state;
+}
+
+void AP_EFI::handle_EFI_message(const mavlink_message_t &msg) {
+    if (backend != nullptr) {
+        backend->handle_EFI_message(msg);
+    }
 }
 
 namespace AP {

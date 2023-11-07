@@ -172,7 +172,7 @@ PA7 SPI1_MOSI SPI1
 # this defines an output pin which will default to output LOW. It is a
 # pin that enables peripheral power on this board
 
-PA8 VDD_5V_PERIPH_EN OUTPUT LOW
+PA8 nVDD_5V_PERIPH_EN OUTPUT LOW
 
 # this is the pin that senses USB being connected. It is an input pin
 # setup as OPENDRAIN
@@ -423,10 +423,6 @@ define HAL_PROBE_EXTERNAL_I2C_COMPASSES
 # a #define in the hwdef.h header
 define HAL_CHIBIOS_ARCH_FMUV3 1
 
-# now some defines for logging and terrain data files
-define HAL_BOARD_LOG_DIRECTORY "/APM/LOGS"
-define HAL_BOARD_TERRAIN_DIRECTORY "/APM/TERRAIN"
-
 # we need to tell HAL_ChibiOS/Storage.cpp how much storage is
 # available (in bytes)
 define HAL_STORAGE_SIZE 32768
@@ -478,4 +474,8 @@ STORAGE_FLASH_PAGE 1
 # is "ROMFS ROMFS-filename source-filename". Paths are relative to the
 # ardupilot root
 ROMFS io_firmware.bin Tools/IO_Firmware/iofirmware_highpolh.bin
+
+# enable support for dshot on iomcu
+ROMFS io_firmware_dshot.bin Tools/IO_Firmware/iofirmware_dshot_highpolh.bin
+define HAL_WITH_IO_MCU_DSHOT 1
 

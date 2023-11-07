@@ -13,6 +13,10 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AP_Scripting_config.h"
+
+#if AP_SCRIPTING_ENABLED
+
 #include "lua_scripts.h"
 #include <AP_HAL/AP_HAL.h>
 #include "AP_Scripting.h"
@@ -23,6 +27,7 @@
 #define DISABLE_INTERRUPTS_FOR_SCRIPT_RUN 0
 
 extern const AP_HAL::HAL& hal;
+#define ENABLE_DEBUG_MODULE 0
 
 bool lua_scripts::overtime;
 jmp_buf lua_scripts::panic_jmp;
@@ -122,11 +127,12 @@ int lua_scripts::atpanic(lua_State *L) {
 void lua_scripts::update_stats(const char *name, uint32_t run_time, int total_mem, int run_mem)
 {
     if ((_debug_options.get() & uint8_t(DebugLevel::RUNTIME_MSG)) != 0) {
-        gcs().send_text(MAV_SEVERITY_DEBUG, "Lua: Time: %u Mem: %d + %d",
+        GCS_SEND_TEXT(MAV_SEVERITY_DEBUG, "Lua: Time: %u Mem: %d + %d",
                                             (unsigned int)run_time,
                                             (int)total_mem,
                                             (int)run_mem);
     }
+#if HAL_LOGGING_ENABLED
     if ((_debug_options.get() & uint8_t(DebugLevel::LOG_RUNTIME)) != 0) {
         struct log_Scripting pkt {
             LOG_PACKET_HEADER_INIT(LOG_SCRIPTING_MSG),
@@ -144,6 +150,7 @@ void lua_scripts::update_stats(const char *name, uint32_t run_time, int total_me
         }
         AP::logger().WriteBlock(&pkt, sizeof(pkt));
     }
+#endif // HAL_LOGGING_ENABLED
 }
 
 lua_scripts::script_info *lua_scripts::load_script(lua_State *L, char *filename) {
@@ -198,6 +205,12 @@ lua_scripts::script_info *lua_scripts::load_script(lua_State *L, char *filename)
 void lua_scripts::create_sandbox(lua_State *L) {
     lua_newtable(L);
     luaopen_base_sandbox(L);
+
+#if ENABLE_DEBUG_MODULE
+    lua_pushstring(L, "debug");
+    luaopen_debug(L);
+    lua_settable(L, -3);
+#endif
     lua_pushstring(L, "math");
     luaopen_math(L);
     lua_settable(L, -3);
@@ -213,8 +226,11 @@ void lua_scripts::create_sandbox(lua_State *L) {
     lua_pushstring(L, "utf8");
     luaopen_utf8(L);
     lua_settable(L, -3);
-    load_generated_sandbox(L);
+    lua_pushstring(L, "package");
+    luaopen_package(L);
+    lua_settable(L, -3);
 
+    load_generated_sandbox(L);
 }
 
 void lua_scripts::load_all_scripts_in_dir(lua_State *L, const char *dirname) {
@@ -224,7 +240,7 @@ void lua_scripts::load_all_scripts_in_dir(lua_State *L, const char *dirname) {
 
     auto *d = AP::FS().opendir(dirname);
     if (d == nullptr) {
-        gcs().send_text(MAV_SEVERITY_INFO, "Lua: open directory (%s) failed", dirname);
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Lua: open directory (%s) failed", dirname);
         return;
     }
 
@@ -294,6 +310,7 @@ void lua_scripts::run_next_script(lua_State *L) {
 
     // pop the function to the top of the stack
     lua_rawgeti(L, LUA_REGISTRYINDEX, script->lua_ref);
+    AP::scripting()->set_current_ref(script->lua_ref);
 
     if(lua_pcall(L, 0, LUA_MULTRET, 0)) {
         if (overtime) {
@@ -435,7 +452,7 @@ void lua_scripts::run(void) {
     bool succeeded_initial_load = false;
 
     if (!_heap.available()) {
-        gcs().send_text(MAV_SEVERITY_INFO, "Lua: Unable to allocate a heap");
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Lua: Unable to allocate a heap");
         return;
     }
 
@@ -460,7 +477,7 @@ void lua_scripts::run(void) {
     lua_state = lua_newstate(alloc, NULL);
     lua_State *L = lua_state;
     if (L == nullptr) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "Lua: Couldn't allocate a lua state");
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "Lua: Couldn't allocate a lua state");
         return;
     }
 
@@ -489,7 +506,7 @@ void lua_scripts::run(void) {
         loaded = true;
     }
     if (!loaded) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "Lua: All directory's disabled see SCR_DIR_DISABLE");
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "Lua: All directory's disabled see SCR_DIR_DISABLE");
     }
 
 #ifndef __clang_analyzer__
@@ -528,7 +545,7 @@ void lua_scripts::run(void) {
             }
 
             if ((_debug_options.get() & uint8_t(DebugLevel::RUNTIME_MSG)) != 0) {
-                gcs().send_text(MAV_SEVERITY_DEBUG, "Lua: Running %s", scripts->name);
+                GCS_SEND_TEXT(MAV_SEVERITY_DEBUG, "Lua: Running %s", scripts->name);
             }
             // copy name for logging, cant do it after as script reschedule moves the pointers
             const char * script_name = scripts->name;
@@ -557,7 +574,7 @@ void lua_scripts::run(void) {
 
         } else {
             if ((_debug_options.get() & uint8_t(DebugLevel::NO_SCRIPTS_TO_RUN)) != 0) {
-                gcs().send_text(MAV_SEVERITY_DEBUG, "Lua: No scripts to run");
+                GCS_SEND_TEXT(MAV_SEVERITY_DEBUG, "Lua: No scripts to run");
             }
             hal.scheduler->delay(1000);
         }
@@ -588,3 +605,5 @@ void lua_scripts::run(void) {
     }
     error_msg_buf_sem.give();
 }
+
+#endif  // AP_SCRIPTING_ENABLED

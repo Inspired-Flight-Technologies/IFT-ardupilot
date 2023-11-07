@@ -16,6 +16,10 @@
  *   AP_Airspeed.cpp - airspeed (pitot) driver
  */
 
+#include "AP_Airspeed_config.h"
+
+#if AP_AIRSPEED_ENABLED
+
 #include "AP_Airspeed.h"
 
 #include <AP_Vehicle/AP_Vehicle_Type.h>
@@ -45,7 +49,7 @@
 #include "AP_Airspeed_analog.h"
 #include "AP_Airspeed_ASP5033.h"
 #include "AP_Airspeed_Backend.h"
-#include "AP_Airspeed_UAVCAN.h"
+#include "AP_Airspeed_DroneCAN.h"
 #include "AP_Airspeed_NMEA.h"
 #include "AP_Airspeed_MSP.h"
 #include "AP_Airspeed_SITL.h"
@@ -135,8 +139,8 @@ const AP_Param::GroupInfo AP_Airspeed::var_info[] = {
     AP_GROUPINFO("_WIND_MAX", 22, AP_Airspeed, _wind_max, 0),
 
     // @Param: _WIND_WARN
-    // @DisplayName: Airspeed and ground speed difference that gives a warning
-    // @Description: If the difference between airspeed and ground speed is greater than this value the sensor will issue a warning. If 0 ARSPD_WIND_MAX is used.
+    // @DisplayName: Airspeed and GPS speed difference that gives a warning
+    // @Description: If the difference between airspeed and GPS speed is greater than this value the sensor will issue a warning. If 0 ARSPD_WIND_MAX is used.
     // @Description{Copter, Blimp, Rover, Sub}: This parameter and function is not used by this vehicle. Always set to 0.
     // @Units: m/s
     // @User: Advanced
@@ -144,7 +148,7 @@ const AP_Param::GroupInfo AP_Airspeed::var_info[] = {
 
     // @Param: _WIND_GATE
     // @DisplayName: Re-enable Consistency Check Gate Size
-    // @Description: Number of standard deviations applied to the re-enable EKF consistency check that is used when ARSPD_OPTIONS bit position 3 is set. Larger values will make the re-enabling of the airspeed sensor faster, but increase the likelihood of re-enabling a degraded sensor. The value can be tuned by using the ARSP.TR log message by setting ARSP_WIND_GATE to a value that is higher than the value for ARSP.TR observed with a healthy airspeed sensor. Occasional transients in ARSP.TR above the value set by ARSP_WIND_GATE can be tolerated provided they are less than 5 seconds in duration and less than 10% duty cycle.
+    // @Description: Number of standard deviations applied to the re-enable EKF consistency check that is used when ARSPD_OPTIONS bit position 3 is set. Larger values will make the re-enabling of the airspeed sensor faster, but increase the likelihood of re-enabling a degraded sensor. The value can be tuned by using the ARSP.TR log message by setting ARSPD_WIND_GATE to a value that is higher than the value for ARSP.TR observed with a healthy airspeed sensor. Occasional transients in ARSP.TR above the value set by ARSPD_WIND_GATE can be tolerated provided they are less than 5 seconds in duration and less than 10% duty cycle.
     // @Description{Copter, Blimp, Rover, Sub}: This parameter and function is not used by this vehicle.
     // @Range: 0.0 10.0
     // @User: Advanced
@@ -152,7 +156,7 @@ const AP_Param::GroupInfo AP_Airspeed::var_info[] = {
     
     // @Param: _OFF_PCNT
     // @DisplayName: Maximum offset cal speed error 
-    // @Description: The maximum percentage speed change in airspeed reports that is allowed due to offset changes between calibraions before a warning is issued. This potential speed error is in percent of ASPD_FBW_MIN. 0 disables. Helps warn of calibrations without pitot being covered.
+    // @Description: The maximum percentage speed change in airspeed reports that is allowed due to offset changes between calibrations before a warning is issued. This potential speed error is in percent of ASPD_FBW_MIN. 0 disables. Helps warn of calibrations without pitot being covered.
     // @Range: 0.0 10.0
     // @Units: %
     // @User: Advanced
@@ -188,8 +192,8 @@ AP_Airspeed::AP_Airspeed()
 
     // Setup defaults that only apply to first sensor
     param[0].type.set_default(ARSPD_DEFAULT_TYPE);
-    param[0].bus.set_default(HAL_AIRSPEED_BUS_DEFAULT);
 #ifndef HAL_BUILD_AP_PERIPH
+    param[0].bus.set_default(HAL_AIRSPEED_BUS_DEFAULT);
     param[0].pin.set_default(ARSPD_DEFAULT_PIN);
 #endif
 
@@ -415,8 +419,8 @@ void AP_Airspeed::allocate()
 #endif
             break;
         case TYPE_UAVCAN:
-#if AP_AIRSPEED_UAVCAN_ENABLED
-            sensor[i] = AP_Airspeed_UAVCAN::probe(*this, i, uint32_t(param[i].bus_id.get()));
+#if AP_AIRSPEED_DRONECAN_ENABLED
+            sensor[i] = AP_Airspeed_DroneCAN::probe(*this, i, uint32_t(param[i].bus_id.get()));
 #endif
             break;
         case TYPE_NMEA_WATER:
@@ -442,18 +446,18 @@ void AP_Airspeed::allocate()
         }
     }
 
-#if AP_AIRSPEED_UAVCAN_ENABLED
+#if AP_AIRSPEED_DRONECAN_ENABLED
     // we need a 2nd pass for DroneCAN sensors so we can match order by DEVID
     // the 2nd pass accepts any devid
     for (uint8_t i=0; i<AIRSPEED_MAX_SENSORS; i++) {
         if (sensor[i] == nullptr && (enum airspeed_type)param[i].type.get() == TYPE_UAVCAN) {
-            sensor[i] = AP_Airspeed_UAVCAN::probe(*this, i, 0);
+            sensor[i] = AP_Airspeed_DroneCAN::probe(*this, i, 0);
             if (sensor[i] != nullptr) {
                 num_sensors = i+1;
             }
         }
     }
-#endif // AP_AIRSPEED_UAVCAN_ENABLED
+#endif // AP_AIRSPEED_DRONECAN_ENABLED
 #endif // HAL_AIRSPEED_PROBE_LIST
 
     // set DEVID to zero for any sensors not found. This allows backends to order
@@ -605,6 +609,14 @@ void AP_Airspeed::read(uint8_t i)
         return;
     }
 
+#ifndef HAL_BUILD_AP_PERIPH
+    /*
+      get the healthy state before we call get_pressure() as
+      get_pressure() overwrites the healthy state
+     */
+    bool prev_healthy = state[i].healthy;
+#endif
+
     float raw_pressure = get_pressure(i);
     float airspeed_pressure = raw_pressure - get_offset(i);
 
@@ -612,7 +624,6 @@ void AP_Airspeed::read(uint8_t i)
     state[i].corrected_pressure = airspeed_pressure;
 
 #ifndef HAL_BUILD_AP_PERIPH
-    bool prev_healthy = state[i].healthy;
     if (state[i].cal.start_ms != 0) {
         update_calibration(i, raw_pressure);
     }
@@ -621,7 +632,7 @@ void AP_Airspeed::read(uint8_t i)
     if (!prev_healthy) {
         // if the previous state was not healthy then we should not
         // use an IIR filter, otherwise a bad reading will last for
-        // some time after the sensor becomees healthy again
+        // some time after the sensor becomes healthy again
         state[i].filtered_pressure = airspeed_pressure;
     } else {
         state[i].filtered_pressure = 0.7f * state[i].filtered_pressure + 0.3f * airspeed_pressure;
@@ -921,3 +932,5 @@ AP_Airspeed *airspeed()
 }
 
 };
+
+#endif  // AP_AIRSPEED_ENABLED

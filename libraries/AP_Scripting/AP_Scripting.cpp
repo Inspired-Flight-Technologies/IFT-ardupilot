@@ -13,6 +13,10 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AP_Scripting_config.h"
+
+#if AP_SCRIPTING_ENABLED
+
 #include <AP_Scripting/AP_Scripting.h>
 #include <AP_HAL/AP_HAL.h>
 #include <GCS_MAVLink/GCS.h>
@@ -33,7 +37,9 @@
 #endif // !defined(SCRIPTING_STACK_MAX_SIZE)
 
 #if !defined(SCRIPTING_HEAP_SIZE)
-  #if CONFIG_HAL_BOARD == HAL_BOARD_SITL || CONFIG_HAL_BOARD == HAL_BOARD_LINUX || HAL_MEM_CLASS >= HAL_MEM_CLASS_500
+  #if CONFIG_HAL_BOARD == HAL_BOARD_SITL || CONFIG_HAL_BOARD == HAL_BOARD_LINUX || HAL_MEM_CLASS >= HAL_MEM_CLASS_1000
+    #define SCRIPTING_HEAP_SIZE (200 * 1024)
+  #elif HAL_MEM_CLASS >= HAL_MEM_CLASS_500
     #define SCRIPTING_HEAP_SIZE (100 * 1024)
   #else
     #define SCRIPTING_HEAP_SIZE (43 * 1024)
@@ -148,17 +154,18 @@ void AP_Scripting::init(void) {
     const char *dir_name = SCRIPTING_DIRECTORY;
     if (AP::FS().mkdir(dir_name)) {
         if (errno != EEXIST) {
-            gcs().send_text(MAV_SEVERITY_INFO, "Scripting: failed to create (%s)", dir_name);
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Scripting: failed to create (%s)", dir_name);
         }
     }
 
     if (!hal.scheduler->thread_create(FUNCTOR_BIND_MEMBER(&AP_Scripting::thread, void),
                                       "Scripting", SCRIPTING_STACK_SIZE, AP_HAL::Scheduler::PRIORITY_SCRIPTING, 0)) {
-        gcs().send_text(MAV_SEVERITY_ERROR, "Scripting: %s", "failed to start");
+        GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "Scripting: %s", "failed to start");
         _thread_failed = true;
     }
 }
 
+#if HAL_GCS_ENABLED
 MAV_RESULT AP_Scripting::handle_command_int_packet(const mavlink_command_int_t &packet) {
     switch ((SCRIPTING_CMD)packet.param1) {
         case SCRIPTING_CMD_REPL_START:
@@ -180,6 +187,7 @@ MAV_RESULT AP_Scripting::handle_command_int_packet(const mavlink_command_int_t &
 
     return MAV_RESULT_UNSUPPORTED;
 }
+#endif
 
 bool AP_Scripting::repl_start(void) {
     if (terminal.session) { // it's already running, this is fine
@@ -191,7 +199,7 @@ bool AP_Scripting::repl_start(void) {
     if ((AP::FS().stat(REPL_DIRECTORY, &st) == -1) &&
         (AP::FS().unlink(REPL_DIRECTORY)  == -1) &&
         (errno != EEXIST)) {
-        gcs().send_text(MAV_SEVERITY_INFO, "Scripting: Unable to delete old REPL %s", strerror(errno));
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Scripting: Unable to delete old REPL %s", strerror(errno));
     }
 
     // create a new folder
@@ -203,7 +211,7 @@ bool AP_Scripting::repl_start(void) {
     // make the output pointer
     terminal.output_fd = AP::FS().open(REPL_OUT, O_WRONLY|O_CREAT|O_TRUNC);
     if (terminal.output_fd == -1) {
-        gcs().send_text(MAV_SEVERITY_INFO, "Scripting: %s", "Unable to make new REPL");
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Scripting: %s", "Unable to make new REPL");
         return false;
     }
 
@@ -216,6 +224,15 @@ void AP_Scripting::repl_stop(void) {
     // can't do any more cleanup here, closing the open FD's is the REPL's responsibility
 }
 
+/*
+  avoid optimisation of the thread function. This avoids nasty traps
+  where setjmp/longjmp does not properly handle save/restore of
+  floating point registers on exceptions. This is an extra protection
+  over the top of the fix in luaD_rawrunprotected() for the same issue
+ */
+#pragma GCC push_options
+#pragma GCC optimize ("O0")
+
 void AP_Scripting::thread(void) {
     while (true) {
         // reset flags
@@ -225,14 +242,14 @@ void AP_Scripting::thread(void) {
 
         lua_scripts *lua = new lua_scripts(_script_vm_exec_count, _script_heap_size, _debug_options, terminal);
         if (lua == nullptr || !lua->heap_allocated()) {
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "Scripting: %s", "Unable to allocate memory");
+            GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "Scripting: %s", "Unable to allocate memory");
             _init_failed = true;
         } else {
             // run won't return while scripting is still active
             lua->run();
 
             // only reachable if the lua backend has died for any reason
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "Scripting: %s", "stopped");
+            GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "Scripting: %s", "stopped");
         }
         delete lua;
         lua = nullptr;
@@ -253,6 +270,16 @@ void AP_Scripting::thread(void) {
         }
         num_pwm_source = 0;
 
+        // Clear blocked commands
+        {
+            WITH_SEMAPHORE(mavlink_command_block_list_sem);
+            while (mavlink_command_block_list != nullptr) {
+                command_block_list *next_item = mavlink_command_block_list->next;
+                delete mavlink_command_block_list;
+                mavlink_command_block_list = next_item;
+            }
+        }
+
         bool cleared = false;
         while(true) {
             // 1hz check if we should restart
@@ -264,18 +291,20 @@ void AP_Scripting::thread(void) {
             }
             // must be enabled to get this far
             if (cleared || _restart) {
-                gcs().send_text(MAV_SEVERITY_CRITICAL, "Scripting: %s", "restarted");
+                GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "Scripting: %s", "restarted");
                 break;
             }
             if ((_debug_options.get() & uint8_t(lua_scripts::DebugLevel::NO_SCRIPTS_TO_RUN)) != 0) {
-                gcs().send_text(MAV_SEVERITY_DEBUG, "Scripting: %s", "stopped");
+                GCS_SEND_TEXT(MAV_SEVERITY_DEBUG, "Scripting: %s", "stopped");
             }
         }
     }
 }
+#pragma GCC pop_options
 
 void AP_Scripting::handle_mission_command(const AP_Mission::Mission_Command& cmd_in)
 {
+#if AP_MISSION_ENABLED
     if (!_enable) {
         return;
     }
@@ -288,7 +317,7 @@ void AP_Scripting::handle_mission_command(const AP_Mission::Mission_Command& cmd
             mission_data = nullptr;
         }
         if (mission_data == nullptr) {
-            gcs().send_text(MAV_SEVERITY_INFO, "Scripting: %s", "unable to receive mission command");
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Scripting: %s", "unable to receive mission command");
             return;
         }
     }
@@ -300,6 +329,7 @@ void AP_Scripting::handle_mission_command(const AP_Mission::Mission_Command& cmd
                                       AP_HAL::millis()};
 
     mission_data->push(cmd);
+#endif
 }
 
 bool AP_Scripting::arming_checks(size_t buflen, char *buffer) const
@@ -336,6 +366,43 @@ void AP_Scripting::restart_all()
     _stop = true;
 }
 
+#if HAL_GCS_ENABLED
+void AP_Scripting::handle_message(const mavlink_message_t &msg, const mavlink_channel_t chan) {
+    if (mavlink_data.rx_buffer == nullptr) {
+        return;
+    }
+
+    struct mavlink_msg data {msg, chan, AP_HAL::millis()};
+
+    WITH_SEMAPHORE(mavlink_data.sem);
+    for (uint16_t i = 0; i < mavlink_data.accept_msg_ids_size; i++) {
+        if (mavlink_data.accept_msg_ids[i] == UINT32_MAX) {
+            return;
+        }
+        if (mavlink_data.accept_msg_ids[i] == msg.msgid) {
+            mavlink_data.rx_buffer->push(data);
+            return;
+        }
+    }
+}
+
+bool AP_Scripting::is_handling_command(uint16_t cmd_id)
+{
+    WITH_SEMAPHORE(mavlink_command_block_list_sem);
+
+    // Look in linked list to see if id is registered
+    if (mavlink_command_block_list != nullptr) {
+        for (command_block_list *item = mavlink_command_block_list; item; item = item->next) {
+            if (item->id == cmd_id) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+#endif // HAL_GCS_ENABLED
+
 AP_Scripting *AP_Scripting::_singleton = nullptr;
 
 namespace AP {
@@ -343,3 +410,5 @@ namespace AP {
         return AP_Scripting::get_singleton();
     }
 }
+
+#endif  // AP_SCRIPTING_ENABLED
