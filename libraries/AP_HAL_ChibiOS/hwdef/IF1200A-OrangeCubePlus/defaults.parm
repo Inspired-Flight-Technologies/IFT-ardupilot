@@ -1,5 +1,5 @@
 #IF1200A Default Parameter for Release 4.5.6
-# IFT1200A Default Params from initial release 
+
 ADSB_TYPE,0
 ANGLE_MAX,2500
 ARMING_CHECK,1045758
