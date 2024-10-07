@@ -1,4 +1,4 @@
-# IF800 Default Params from initial release 
+# IF800 Default Params for 4.5.6 
 
 ADSB_TYPE,0
 AHRS_ORIENTATION,12
