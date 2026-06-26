@@ -114,6 +114,36 @@ previously written to the board's storage **overrides** the embedded default. Af
 flashing, refresh params and confirm the key values, or `param set` them once if the
 board still holds stale values from a prior session.
 
+#### Reset parameters on first SIH boot (required)
+
+The IF800 is a production board repurposed for SIH, so its flash/FRAM still holds
+the **real** sensor calibration from production firmware. Parameter space is shared
+between the real and simulated aircraft, and the sensor suites differ
+([ArduPilot SIH docs](https://ardupilot.org/dev/docs/sim-on-hardware.html)). The
+simulated IMUs/compasses register fewer instances than production, so the sim never
+overwrites the stale extra device IDs, and embedded `defaults.parm` **cannot** clear a
+value already saved to storage. Symptoms of skipping this step:
+
+- The board demands an **accelerometer calibration** even though `INS_ACC*` cal offsets
+  are in `defaults.parm`. A stale `INS_ACC3_ID` (the disabled aux IMU) left in storage
+  trips the "missing accel" branch of `accel_calibrated_ok_all()`.
+- The board demands a **compass calibration** ("Compass not calibrated"). `COMPASS_OFS`
+  reads back as zero (the embedded non-zero offsets are shadowed by saved zeros) and/or
+  a stale `COMPASS_DEV_ID3`/`COMPASS_PRIO3_ID` from production lingers.
+
+Neither can be fixed by `param set` of individual IDs — do a full storage wipe so the
+embedded SIH defaults apply and the simulated sensors re-register cleanly:
+
+1. (Optional) Save the board's current parameters first if you will reflash production
+   firmware later.
+2. Set `FORMAT_VERSION 0` and **reboot**. On the next boot the param header no longer
+   matches, storage is erased (`AP_Param::erase_all()`), and the embedded SIH defaults
+   are re-applied. (Equivalent: Mission Planner *Reset to Default*, or
+   `MAV_CMD_PREFLIGHT_STORAGE` param1=2.)
+3. Reboot once more and confirm `COMPASS_OFS_X` reads `5` (not `0`), `COMPASS_DEV_ID`
+   and `INS_ACC_ID` are populated by the sim backend, and no accel/compass cal is
+   demanded.
+
 ### 1.5 What the SIH defaults configure
 
 Beyond the standard simulated-sensor setup, `defaults.parm` configures the gimbal and
