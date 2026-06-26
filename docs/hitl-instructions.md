@@ -147,4 +147,143 @@ After flashing, connect a GCS and check:
 
 ## 2. SITL (desktop simulation)
 
-_To be added._
+This section covers running **desktop SITL** via `sim_vehicle.py` while a **real**
+Gremsy gimbal + MAVLink camera are connected to the host over USB/serial. Unlike SIH
+(§1), nothing runs on the flight controller — the autopilot is a process on your PC,
+and a physical UART is bridged into one of its simulated serial ports.
+
+### 2.1 The key gotcha: SITL serial ports are not real UARTs
+
+In desktop SITL the **byte transport** for each serial port is hard-wired in code and
+is independent of the `SERIALx_*` params. See
+`libraries/AP_HAL_SITL/SITL_State.h` (`_serial_path[]`):
+
+| Port | Default transport | Notes |
+|------|-------------------|-------|
+| SERIAL0 | `tcp:0:wait` | console (TCP 5760) |
+| SERIAL1 | `tcp:2` | MAVLink (TCP 5762) |
+| SERIAL2 | `tcp:3` | MAVLink (TCP 5763) |
+| SERIAL3 | `GPS1` | **simulated** GPS |
+| SERIAL4 | `GPS2` | **simulated** 2nd GPS |
+| SERIAL5–8 | `tcp:5`…`tcp:8` | |
+
+So by default **SERIAL4 is wired to a fake `GPS2` simulator**, not to a physical UART.
+Setting `SERIAL4_PROTOCOL 2` alone does nothing — your gimbal's MAVLink bytes never
+reach the autopilot, the gimbal won't move, and `CAMERA_INFORMATION` reports
+`UNSUPPORTED`. You must point SERIAL4 at the real device on the command line.
+
+> This is the desktop-SITL equivalent of the SIH wiring note in §1.5: the device has to
+> be on a MAVLink2 port **and** that port has to actually carry the device's bytes.
+
+### 2.2 Bridging a real serial device into SITL
+
+`sim_vehicle.py` forwards `-A` args to the SITL binary, which understands a
+`uart:<path>:<baud>` device string (see `libraries/AP_HAL_SITL/UARTDriver.cpp`,
+`_parse_args` / `uart:` case):
+
+```bash
+-A "--serial4=uart:/dev/serial/by-id/<YOUR-GIMBAL>:115200"
+```
+
+Find the device path (prefer `by-id` — stable across replug/reboot):
+
+```bash
+ls -l /dev/serial/by-id/
+```
+
+Make sure your user can open it (add to the `dialout` group once, then re-login):
+
+```bash
+sudo usermod -aG dialout "$USER"
+```
+
+The `:115200` in the string sets the host UART baud directly; if SITL prints
+`Failed to open (...)` at startup it is a wrong path or a permissions problem, and if
+it prints `Opened /dev/...` the bridge is up.
+
+### 2.3 Parameters: the board defaults do NOT apply here
+
+The board's `defaults.parm` / SIH config from §1 are embedded in **board firmware** and
+are **not** loaded when you run desktop SITL. You must supply the gimbal/camera params
+explicitly. Keep them in a small file (repo root `gimbal-sitl.parm`):
+
+```
+# --- serial link to the real Gremsy gimbal/camera on SERIAL4 ---
+SERIAL4_PROTOCOL 2
+SERIAL4_BAUD 115
+SERIAL4_OPTIONS 0
+
+# --- Gremsy MAVLink mount ---
+MNT1_TYPE 6
+MNT1_DEFLT_MODE 3
+MNT1_OPTIONS 1
+MNT1_PITCH_MIN -90
+MNT1_PITCH_MAX 90
+MNT1_ROLL_MIN -45
+MNT1_ROLL_MAX 45
+MNT1_YAW_MIN -319
+MNT1_YAW_MAX 319
+
+# --- MAVLink camera tied to mount instance 0 ---
+CAM2_TYPE 6
+CAM2_MNT_INST 0
+
+# --- RC stick control of the gimbal (MNT1_DEFLT_MODE 3 = RC_TARGETING) ---
+# RC9  = 163 MOUNT_LOCK  (yaw lock vs follow toggle)
+# RC15 = 214 MOUNT1_YAW  (yaw input -- this is the stick that moves yaw)
+RC9_OPTION 163
+RC15_OPTION 214
+```
+
+> Do **not** add the sim-sensor params (`GPS_TYPE 100`, `AHRS_EKF_TYPE 10`, `SERIAL3_*`).
+> Desktop SITL already simulates its own sensors and runs the sim GPS on SERIAL3.
+
+### 2.4 Run it
+
+```bash
+cd <repo root>
+Tools/autotest/sim_vehicle.py -v ArduCopter \
+  -A "--serial4=uart:/dev/serial/by-id/<YOUR-GIMBAL>:115200" \
+  --add-param-file=gimbal-sitl.parm \
+  --console --map
+```
+
+- `--add-param-file=` applies the params right after defaults load.
+- Add `-w` for a clean param/EEPROM wipe, `-N` to skip the rebuild if already built.
+
+To load params into an **already-running** SITL instead, use the MAVProxy console:
+
+```
+param load gimbal-sitl.parm
+reboot
+```
+
+> `MNT1_TYPE` only instantiates the mount backend at boot, so a `reboot` is required
+> after changing it (MAVProxy reconnects automatically).
+
+### 2.5 Driving the gimbal in SITL
+
+`MNT1_DEFLT_MODE 3` (RC_TARGETING) means the gimbal moves from RC input. With no
+physical transmitter, override the channels from MAVProxy — **ch15 is the yaw input**,
+ch9 toggles lock/follow:
+
+```
+rc 15 1100      # yaw input low
+rc 15 1900      # yaw input high
+rc 15 1500      # center
+rc 9 1900       # follow mode (vs lock)
+```
+
+GCS/mission `MAV_CMD_DO_MOUNT_CONTROL` works regardless of RC mapping, e.g.:
+
+```
+mount 1 pitch -45 0 0
+```
+
+### 2.6 Verifying
+
+- SITL printed `Opened /dev/...` (not `Failed to open`) at startup.
+- A `MAV_TYPE_GIMBAL` and a `MAV_TYPE_CAMERA` component appear on the link.
+- The gimbal responds to a commanded angle and to ch15 yaw override.
+- `CAMERA_INFORMATION` returns vendor/model instead of `UNSUPPORTED`; camera trigger
+  (e.g. `module load camera` / GCS shutter) takes a picture.
