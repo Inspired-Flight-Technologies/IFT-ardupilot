@@ -148,7 +148,7 @@ def git_submodule(bld, git_submodule, **kw):
 def _post_fun(bld):
     Logs.info('')
     for name, t in _submodules_tasks.items():
-        if not t.non_fast_forward:
+        if not getattr(t, 'non_fast_forward', None):
             continue
         Logs.warn("Submodule %s not updated: non-fastforward" % name)
 
