@@ -106,7 +106,7 @@ COMPASS_ORIENT2 0
 COMPASS_ORIENT3 0
 COMPASS_PRIO1_ID 0
 COMPASS_PRIO2_ID 0
-COMPASS_PRIO3_ID 590114
+COMPASS_PRIO3_ID 0
 COMPASS_USE 1
 COMPASS_USE2 1
 COMPASS_USE3 0
@@ -270,6 +270,16 @@ SERIAL3_PROTOCOL 5
 SIM_MAG3_DEVID 0
 COMPASS_PRIO1_ID 0
 COMPASS_PRIO2_ID 0
+# The simulated compasses must report as "configured" so SIH does not demand a
+# magnetometer calibration. Compass::configured() returns false if a compass has
+# all-zero offsets, so give both sim mags non-zero offsets (values are arbitrary
+# in sim). Matches the stock CubeOrange-SimOnHardWare defaults.
+COMPASS_OFS_X 5
+COMPASS_OFS_Y 13
+COMPASS_OFS_Z -18
+COMPASS_OFS2_X 5
+COMPASS_OFS2_Y 13
+COMPASS_OFS2_Z -18
 INS_ACCOFFS_X 0.001
 INS_ACCOFFS_Y 0.001
 INS_ACCOFFS_Z 0.001
