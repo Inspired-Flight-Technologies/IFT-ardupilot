@@ -75,7 +75,7 @@ BATT2_SERIAL_NUM -1
 INS_GYRO_FILTER 26
 BRD_SAFETY_DEFLT 0
 BRD_SAFETY_MASK 16320
-CAM2_TYPE 5
+CAM2_TYPE 6
 CAN_D1_UC_ESC_BM 0
 CAN_D1_UC_ESC_OF 0
 CAN_D1_UC_NODE 10
@@ -104,8 +104,8 @@ COMPASS_EXTERNAL 0
 COMPASS_ORIENT 0
 COMPASS_ORIENT2 0
 COMPASS_ORIENT3 0
-COMPASS_PRIO1_ID 65795
-COMPASS_PRIO2_ID 66051
+COMPASS_PRIO1_ID 0
+COMPASS_PRIO2_ID 0
 COMPASS_PRIO3_ID 590114
 COMPASS_USE 1
 COMPASS_USE2 1
@@ -128,8 +128,8 @@ FRAME_CLASS 1
 FRAME_TYPE 2
 FS_EKF_ACTION 2
 FS_GCS_ENABLE 1
-GPS_TYPE 9
-GPS_TYPE2 9
+GPS_TYPE 100
+GPS_TYPE2 0
 GPS1_CAN_OVRIDE 1
 GPS2_CAN_OVRIDE 2
 GPS_AUTO_SWITCH 4
@@ -208,7 +208,7 @@ SCR_ENABLE 1
 SCR_HEAP_SIZE 102400
 SCR_VM_I_COUNT 10000
 SERIAL3_BAUD 57
-SERIAL3_PROTOCOL 2
+SERIAL3_PROTOCOL 5
 SERIAL4_BAUD 115
 SERIAL4_PROTOCOL 2
 SERIAL5_BAUD 115200
@@ -246,3 +246,74 @@ WP_YAW_BEHAVIOR 1
 WPNAV_SPEED 400
 WPNAV_SPEED_UP 350
 WPNAV_SPEED_DN 200
+
+# ====================================================================
+# SIH (Sim-on-Hardware) overrides  --  merged from former sih-defaults.parm.
+# This board variant is built SIH-only (production hwdef + sih-extra-hwdef.dat).
+# ArduPilot applies embedded defaults last-wins, so the lines below override
+# the production values above (GPS_TYPE, GPS_TYPE2, SERIAL3_PROTOCOL, CAM2_TYPE,
+# COMPASS_PRIO*_ID, ...) to run the native SITL model on the board.
+# ====================================================================
+
+# ---- standard SIH simulated sensors ----
+AHRS_EKF_TYPE 10
+# Run the simulated GPS instead of the production CAN GPS (type 9).
+GPS_TYPE 100
+GPS1_TYPE 100
+GPS_TYPE2 0
+GPS2_TYPE 0
+# SITL GPS backend (type 100) only instantiates if a serial port is set to GPS
+# protocol; production runs GPS on CAN, so give the sim GPS SERIAL3 (UART4).
+SERIAL3_PROTOCOL 5
+# SIH uses 2 simulated mags; clear stale DroneCAN compass priority IDs so the
+# registry does not overflow ("Too many compass instances").
+SIM_MAG3_DEVID 0
+COMPASS_PRIO1_ID 0
+COMPASS_PRIO2_ID 0
+INS_ACCOFFS_X 0.001
+INS_ACCOFFS_Y 0.001
+INS_ACCOFFS_Z 0.001
+INS_ACCSCAL_X 1.001
+INS_ACCSCAL_Y 1.001
+INS_ACCSCAL_Z 1.001
+INS_ACC2OFFS_X 0.001
+INS_ACC2OFFS_Y 0.001
+INS_ACC2OFFS_Z 0.001
+INS_ACC2SCAL_X 1.001
+INS_ACC2SCAL_Y 1.001
+INS_ACC2SCAL_Z 1.001
+SIM_MAG1_DEVID 97539
+SIM_RATE_HZ 400
+SCHED_LOOP_RATE 400
+BRD_RTC_TYPES 2
+BRD_HEAT_TARG 25
+BRD_SAFETY_DEFLT 0
+
+# ---- gimbal + camera serial link (UART8 / SERIAL4) ----
+# Gremsy MAVLink gimbal + its MAVLink camera are wired to UART8. Default for
+# SERIAL4 is GPS(5); without MAVLink2 here their MAV_TYPE_GIMBAL/MAV_TYPE_CAMERA
+# heartbeats are never routed, so neither is discovered (gimbal will not move,
+# CAMERA_INFORMATION stays UNSUPPORTED). The sim GPS stays on SERIAL3, no conflict.
+SERIAL4_PROTOCOL 2
+SERIAL4_BAUD 115
+SERIAL4_OPTIONS 0
+
+# ---- gimbal + camera (Gremsy MAVLink) ----
+MNT1_TYPE 6
+MNT1_DEFLT_MODE 3
+MNT1_OPTIONS 1
+MNT1_RC_RATE 90
+MNT1_PITCH_MIN -90
+MNT1_PITCH_MAX 90
+MNT1_ROLL_MIN -45
+MNT1_ROLL_MAX 45
+MNT1_YAW_MIN -319
+MNT1_YAW_MAX 319
+# Camera on CAM2 (instance 1 -> compid CAMERA2). Type 6 (MAVLink CamV2) is the
+# only backend that requests + relays CAMERA_INFORMATION.
+CAM2_TYPE 6
+CAM2_MNT_INST 0
+
+# ---- RC stick control of the gimbal (MNT1_DEFLT_MODE 3 = RC_TARGETING) ----
+RC9_OPTION 163
+RC15_OPTION 214
