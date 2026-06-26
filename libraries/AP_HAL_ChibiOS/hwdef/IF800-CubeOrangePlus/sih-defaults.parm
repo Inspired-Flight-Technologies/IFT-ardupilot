@@ -50,6 +50,18 @@ BRD_RTC_TYPES 2
 BRD_HEAT_TARG 25
 BRD_SAFETY_DEFLT 0
 
+# ================= gimbal + camera serial link (UART8 / SERIAL4) =================
+# The Gremsy MAVLink gimbal and its MAVLink camera are wired to UART8 (SERIAL4).
+# Firmware default for SERIAL4 is GPS(5), so their MAV_TYPE_GIMBAL / MAV_TYPE_CAMERA
+# heartbeats are never routed and neither device is discovered
+# (find_by_mavtype_and_compid returns null -> gimbal won't move, CAMERA_INFORMATION
+# stays UNSUPPORTED). Make it MAVLink2 so both are found. The sim GPS stays on
+# SERIAL3 (UART4), so there is no conflict. (Production also sets SERIAL4_PROTOCOL=2,
+# since its real GPS is on CAN.)
+SERIAL4_PROTOCOL 2
+SERIAL4_BAUD 115
+SERIAL4_OPTIONS 0
+
 # ================= gimbal + camera (Gremsy MAVLink, from production board) =================
 MNT1_TYPE 6
 MNT1_DEFLT_MODE 3
@@ -63,3 +75,9 @@ MNT1_YAW_MIN -319
 MNT1_YAW_MAX 319
 CAM2_TYPE 6
 CAM2_MNT_INST 0
+
+# RC stick control of the gimbal. MNT1_DEFLT_MODE 3 = RC_TARGETING, so the gimbal
+# only moves from RC inputs mapped here (GCS/mission DO_MOUNT_CONTROL works without
+# them). Mirrors the production board: yaw input + yaw lock/follow toggle.
+RC9_OPTION 163
+RC15_OPTION 214
