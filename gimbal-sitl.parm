@@ -1,0 +1,32 @@
+# Gimbal/camera params for HOST SITL (sim_vehicle.py) — load with
+#   --add-param-file=gimbal-sitl.parm   or   MAVProxy: param load gimbal-sitl.parm
+# Requires SERIAL4 mapped to the real device:  -A "--serial4=uart:/dev/ttyUSB0:115200"
+# MNT1_TYPE needs a reboot to take effect.
+
+# --- serial link to the real Gremsy gimbal/camera on SERIAL4 ---
+SERIAL4_PROTOCOL 2
+SERIAL4_BAUD 115
+SERIAL4_OPTIONS 0
+
+# --- Gremsy MAVLink mount ---
+MNT1_TYPE 6
+MNT1_DEFLT_MODE 3
+MNT1_OPTIONS 1
+MNT1_RC_RATE 90
+MNT1_PITCH_MIN -90
+MNT1_PITCH_MAX 90
+MNT1_ROLL_MIN -45
+MNT1_ROLL_MAX 45
+MNT1_YAW_MIN -319
+MNT1_YAW_MAX 319
+
+# --- MAVLink camera tied to mount instance 0 ---
+CAM2_TYPE 6
+CAM2_MNT_INST 0
+
+# --- RC stick control of the gimbal (MNT1_DEFLT_MODE 3 = RC_TARGETING) ---
+# RC9  = 163 MOUNT_LOCK  (yaw lock vs follow toggle)
+# RC15 = 214 MOUNT1_YAW  (yaw input -- this is the stick that actually moves yaw)
+# Mirrors production board.
+RC9_OPTION 163
+RC15_OPTION 214

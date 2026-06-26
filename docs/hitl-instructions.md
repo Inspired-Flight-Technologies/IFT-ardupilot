@@ -182,14 +182,12 @@ reach the autopilot, the gimbal won't move, and `CAMERA_INFORMATION` reports
 `_parse_args` / `uart:` case):
 
 ```bash
--A "--serial4=uart:/dev/serial/by-id/<YOUR-GIMBAL>:115200"
+-A "--serial4=uart:/dev/ttyUSB0:115200"
 ```
 
-Find the device path (prefer `by-id` — stable across replug/reboot):
-
-```bash
-ls -l /dev/serial/by-id/
-```
+Confirm the device path (the gimbal usually enumerates as `/dev/ttyUSB0`; check
+`dmesg | tail` after plugging it in). For a name that is stable across replug/reboot,
+use `/dev/serial/by-id/<id>` from `ls -l /dev/serial/by-id/` instead.
 
 Make sure your user can open it (add to the `dialout` group once, then re-login):
 
@@ -217,6 +215,7 @@ SERIAL4_OPTIONS 0
 MNT1_TYPE 6
 MNT1_DEFLT_MODE 3
 MNT1_OPTIONS 1
+MNT1_RC_RATE 90
 MNT1_PITCH_MIN -90
 MNT1_PITCH_MAX 90
 MNT1_ROLL_MIN -45
@@ -243,7 +242,7 @@ RC15_OPTION 214
 ```bash
 cd <repo root>
 Tools/autotest/sim_vehicle.py -v ArduCopter \
-  -A "--serial4=uart:/dev/serial/by-id/<YOUR-GIMBAL>:115200" \
+  -A "--serial4=uart:/dev/ttyUSB0:115200" \
   --add-param-file=gimbal-sitl.parm \
   --console --map
 ```
@@ -263,16 +262,31 @@ reboot
 
 ### 2.5 Driving the gimbal in SITL
 
-`MNT1_DEFLT_MODE 3` (RC_TARGETING) means the gimbal moves from RC input. With no
-physical transmitter, override the channels from MAVProxy — **ch15 is the yaw input**,
-ch9 toggles lock/follow:
+`MNT1_DEFLT_MODE 3` (RC_TARGETING) means the gimbal moves from RC input. **Commanded
+control and RC control are separate code paths** — `MAV_CMD_DO_MOUNT_CONTROL` goes
+straight to the mount target, while RC control reads `get_radio_in()` of the channel
+mapped to `MOUNT1_YAW` and only acts when that raw PWM is `> 0`
+(`AP_Mount_Backend::get_rc_input`). So commanded control can work while RC does
+nothing — that just means no RC is being injected.
+
+With no physical transmitter in SITL, override the channels from MAVProxy
+(**ch15 = yaw input**, ch9 = lock/follow). Values must be **off-center** — 1500 is the
+trim/deadzone and produces no movement:
 
 ```
-rc 15 1100      # yaw input low
-rc 15 1900      # yaw input high
-rc 15 1500      # center
-rc 9 1900       # follow mode (vs lock)
+rc 15 1900      # MOUNT1_YAW input -- gimbal yaw
+rc 9  1900      # MOUNT_LOCK -- follow vs lock (frame only)
 ```
+
+Verify the override actually reaches the FC (the key diagnostic if RC seems dead):
+
+```
+status RC_CHANNELS      # chan15_raw should now read 1900, not 0 / 65535
+```
+
+With `MNT1_RC_RATE 90` (rate mode, as on the production board) ch15 controls yaw
+*rate*: `1900` slews continuously, `1500` holds. With `MNT1_RC_RATE 0` (angle mode) ch15
+maps stick *position* to absolute yaw angle, so `1500` snaps back to center.
 
 GCS/mission `MAV_CMD_DO_MOUNT_CONTROL` works regardless of RC mapping, e.g.:
 
