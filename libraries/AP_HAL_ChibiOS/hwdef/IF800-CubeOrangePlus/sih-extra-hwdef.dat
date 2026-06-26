@@ -1,0 +1,44 @@
+# Sim-on-Hardware (SIH) extra-hwdef for IF800-CubeOrangePlus, quadcopter.
+# Pass via:  ./waf configure --board IF800-CubeOrangePlus --extra-hwdef=<this file> ...
+# Builds the real IF800 firmware (board id, OpenDroneID, serial map, defaults)
+# but runs the SITL physics + simulated IMU/GPS/baro/compass on the board itself.
+# see https://ardupilot.org/dev/docs/sim-on-hardware.html
+
+# turn on the on-hardware simulator
+env SIM_ENABLED 1
+
+# REQUIRED for SIH: the simulator registers its own mags on top of the board's
+# real compasses; without capping instances the firmware spams "Too many compass
+# instances", which floods the MAVLink link and starves all other telemetry.
+# (matches libraries/AP_HAL_ChibiOS/hwdef/include/SimOnHW.inc)
+define HAL_COMPASS_MAX_SENSORS 2
+
+# ---- flash savings so SIM + scripting + OpenDroneID + mount all fit ----
+define AP_GPS_BACKEND_DEFAULT_ENABLED 0
+define AP_RANGEFINDER_BACKEND_DEFAULT_ENABLED 0
+define HAL_NAVEKF2_AVAILABLE 0
+define EK3_FEATURE_BODY_ODOM 0
+define EK3_FEATURE_EXTERNAL_NAV 0
+define HAL_ADSB_ENABLED 0
+define HAL_PROXIMITY_ENABLED 0
+define HAL_VISUALODOM_ENABLED 0
+define HAL_GENERATOR_ENABLED 0
+define HAL_MSP_OPTICALFLOW_ENABLED 0
+define HAL_SUPPORT_RCOUT_SERIAL 0
+define HAL_HOTT_TELEM_ENABLED 0
+define HAL_HIGH_LATENCY2 0
+define AP_SIM_INS_FILE_ENABLED 0
+
+# ---- keep the gimbal + MAVLink camera compiled in (the point of this build) ----
+# Only the top-level switches are #ifndef-guarded in *_config.h; the per-backend
+# macros (Gremsy, SToRM32-MAVLink, ...) are unguarded and derive from these, so we
+# must NOT -D them (that trips -Werror redefinition). Setting the roots is enough:
+# all MAVLink gimbal/camera backends cascade on at >1MB flash.
+define HAL_MOUNT_ENABLED 1
+define AP_CAMERA_ENABLED 1
+define AP_CAMERA_MAVLINK_ENABLED 1
+
+# ---- simulated vehicle: quadcopter ----
+define AP_SIM_FRAME_CLASS MultiCopter
+define AP_SIM_FRAME_STRING "quad"
+define AP_MOTORS_FRAME_QUAD_ENABLED 1

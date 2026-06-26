@@ -1,0 +1,65 @@
+# Sim-on-Hardware default parameters for IF800-CubeOrangePlus (quadcopter).
+# Pass via:  ./waf configure ... --default-param=<this file>
+#
+# Standard ArduPilot SIH defaults (simulated IMU/GPS/baro/compass so missions
+# fly in the native SITL model on the board) PLUS only the gimbal/camera params,
+# so the Gremsy MAVLink gimbal + its MAVLink camera are configured. Everything
+# else stays at firmware default (standard quad tuning) -- production tuning,
+# CAN, batteries, OpenDroneID etc. are intentionally NOT inherited here.
+
+# ================= standard SIH (simulated sensors) =================
+AHRS_EKF_TYPE 10
+# this firmware (4.5.6) uses GPS_TYPE; newer trees use GPS1_TYPE. Set both --
+# the name that doesn't exist is silently ignored, so this is version-robust.
+GPS_TYPE 100
+GPS1_TYPE 100
+GPS_TYPE2 0
+GPS2_TYPE 0
+# REQUIRED: the SITL GPS backend (type 100) is only instantiated if a serial
+# port is assigned to GPS protocol (it falls through the no-port path in
+# AP_GPS::_detect_instance). Production runs GPS over CAN, so without this the
+# sim GPS never starts and you get "GPS still configuring" / no fix.
+SERIAL3_PROTOCOL 5
+
+# SIH compass: use 2 simulated mags (HAL_COMPASS_MAX_SENSORS=2 in the hwdef).
+# Clear any stale DroneCAN compass priority IDs so the registry doesn't overflow
+# ("Too many compass instances"). On a clean param state these are already 0.
+SIM_MAG3_DEVID 0
+COMPASS_PRIO1_ID 0
+COMPASS_PRIO2_ID 0
+
+INS_ACCOFFS_X 0.001
+INS_ACCOFFS_Y 0.001
+INS_ACCOFFS_Z 0.001
+INS_ACCSCAL_X 1.001
+INS_ACCSCAL_Y 1.001
+INS_ACCSCAL_Z 1.001
+INS_ACC2OFFS_X 0.001
+INS_ACC2OFFS_Y 0.001
+INS_ACC2OFFS_Z 0.001
+INS_ACC2SCAL_X 1.001
+INS_ACC2SCAL_Y 1.001
+INS_ACC2SCAL_Z 1.001
+
+SIM_MAG1_DEVID 97539
+
+SIM_RATE_HZ 400
+SCHED_LOOP_RATE 400
+
+BRD_RTC_TYPES 2
+BRD_HEAT_TARG 25
+BRD_SAFETY_DEFLT 0
+
+# ================= gimbal + camera (Gremsy MAVLink, from production board) =================
+MNT1_TYPE 6
+MNT1_DEFLT_MODE 3
+MNT1_OPTIONS 1
+MNT1_RC_RATE 90
+MNT1_PITCH_MIN -90
+MNT1_PITCH_MAX 90
+MNT1_ROLL_MIN -45
+MNT1_ROLL_MAX 45
+MNT1_YAW_MIN -319
+MNT1_YAW_MAX 319
+CAM2_TYPE 6
+CAM2_MNT_INST 0
