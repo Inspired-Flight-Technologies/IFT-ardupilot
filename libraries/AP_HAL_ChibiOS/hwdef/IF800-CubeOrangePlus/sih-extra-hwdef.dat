@@ -7,6 +7,15 @@
 # turn on the on-hardware simulator
 env SIM_ENABLED 1
 
+# The CubeOrangePlus carries two auxiliary IMUs on the isolated board
+# (icm20948_aux, icm45686_aux -> INS_AUX_INSTANCES 2 in its hwdef). These are real
+# SPI sensors that the SITL INS backend cannot simulate; their calibration lives in
+# a separate param namespace the simulator never populates, so the firmware reports
+# the IMU as unconfigured / uncalibrated. Force the aux instance count to 0 for SIH,
+# exactly as the stock CubeOrangePlus-SimOnHardWare board does.
+undef INS_AUX_INSTANCES
+define INS_AUX_INSTANCES 0
+
 # REQUIRED for SIH: the simulator registers its own mags on top of the board's
 # real compasses; without capping instances the firmware spams "Too many compass
 # instances", which floods the MAVLink link and starves all other telemetry.
